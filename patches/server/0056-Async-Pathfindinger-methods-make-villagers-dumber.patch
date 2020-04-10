@@ -1,4 +1,4 @@
-From 258832ba0b2ce35faec38112e0919c4141d1fc8a Mon Sep 17 00:00:00 2001
+From e0b2b2b2a0cf8c30f2f818e9e7c6028a85baf4a9 Mon Sep 17 00:00:00 2001
 From: tr7zw <tr7zw@live.de>
 Date: Fri, 10 Apr 2020 23:14:18 +0200
 Subject: [PATCH] Async Pathfindinger methods, make villagers dumber
@@ -255,7 +255,7 @@ index 6e0020ae0..ca6dc7579 100644
          this.world.getMethodProfiler().exit();
          if (!this.et() && this.bB > 0) {
 diff --git a/src/main/java/net/minecraft/server/NavigationAbstract.java b/src/main/java/net/minecraft/server/NavigationAbstract.java
-index 196fdd43b..514dc8dc2 100644
+index 196fdd43b..bbc9ad497 100644
 --- a/src/main/java/net/minecraft/server/NavigationAbstract.java
 +++ b/src/main/java/net/minecraft/server/NavigationAbstract.java
 @@ -2,6 +2,10 @@ package net.minecraft.server;
@@ -343,7 +343,7 @@ index 196fdd43b..514dc8dc2 100644
 +		} catch (InterruptedException | ExecutionException e) {
 +			e.printStackTrace();
 +		} catch (TimeoutException e) {
-+			System.out.println("Cancelt a pathfind because it took too long");
++			//System.out.println("Cancelt a pathfind because it took too long");
 +			future.cancel(true);
 +			return null;
 +		}

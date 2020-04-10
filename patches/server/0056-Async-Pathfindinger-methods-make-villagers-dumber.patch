@@ -1,0 +1,378 @@
+From 258832ba0b2ce35faec38112e0919c4141d1fc8a Mon Sep 17 00:00:00 2001
+From: tr7zw <tr7zw@live.de>
+Date: Fri, 10 Apr 2020 23:14:18 +0200
+Subject: [PATCH] Async Pathfindinger methods, make villagers dumber
+
+---
+ .../server/BehaviorFindPosition.java          |  75 ++++++++++
+ .../net/minecraft/server/BehavorMove.java     | 141 ++++++++++++++++++
+ .../net/minecraft/server/EntityVillager.java  |   1 +
+ .../minecraft/server/NavigationAbstract.java  |  53 ++++++-
+ 4 files changed, 268 insertions(+), 2 deletions(-)
+ create mode 100644 src/main/java/net/minecraft/server/BehaviorFindPosition.java
+ create mode 100644 src/main/java/net/minecraft/server/BehavorMove.java
+
+diff --git a/src/main/java/net/minecraft/server/BehaviorFindPosition.java b/src/main/java/net/minecraft/server/BehaviorFindPosition.java
+new file mode 100644
+index 000000000..f6ae0e94b
+--- /dev/null
++++ b/src/main/java/net/minecraft/server/BehaviorFindPosition.java
+@@ -0,0 +1,75 @@
++package net.minecraft.server;
++
++import java.util.Map;
++import java.util.concurrent.ExecutionException;
++import java.util.function.Predicate;
++import java.util.stream.Stream;
++
++import com.google.common.collect.ImmutableMap;
++
++import it.unimi.dsi.fastutil.longs.Long2LongMap;
++import it.unimi.dsi.fastutil.longs.Long2LongOpenHashMap;
++
++public class BehaviorFindPosition extends Behavior<EntityCreature> {
++	private final VillagePlaceType a;
++	private final MemoryModuleType<GlobalPos> b;
++	private final boolean c;
++	private long d;
++	private final Long2LongMap e = new Long2LongOpenHashMap();
++	private int f;
++
++	private static final java.util.concurrent.ExecutorService pathfindExecutor = java.util.concurrent.Executors
++			.newFixedThreadPool(5, new com.google.common.util.concurrent.ThreadFactoryBuilder().setDaemon(true)
++					.setNameFormat("BehavorFindPosition Pathfinder - %d").build()); // YAPFA - Async pathfinder
++
++	public BehaviorFindPosition(VillagePlaceType var0, MemoryModuleType<GlobalPos> var1, boolean var2) {
++		super((Map) ImmutableMap.of(var1, (Object) MemoryStatus.VALUE_ABSENT));
++		this.a = var0;
++		this.b = var1;
++		this.c = var2;
++	}
++
++	protected boolean a(WorldServer var0, EntityCreature var1) {
++		if (this.c && var1.isBaby()) {
++			return false;
++		}
++		return var0.getTime() - this.d >= 20L;
++	}
++
++	protected void a(WorldServer var02, EntityCreature var1, long var2) {
++		this.f = 0;
++		this.d = var02.getTime() + (long) var02.getRandom().nextInt(20);
++		VillagePlace var42 = var02.B();
++		Predicate<BlockPosition> var5 = var0 -> {
++			long id = var0.asLong();
++			if (this.e.containsKey(id)) {
++				return false;
++			}
++			if (++this.f >= 5) {
++				return false;
++			}
++			this.e.put(id, this.d + 40L);
++			return true;
++		};
++		Stream var6 = var42.a(this.a.c(), var5, new BlockPosition((Entity) var1), 48, VillagePlace.Occupancy.HAS_SPACE);
++		pathfindExecutor.submit(() -> {
++			try {
++				PathEntity var7 = (PathEntity) var1.getNavigation().aFuture(var6, this.a.d()).get();
++				if (var7 != null && var7.h()) {
++					BlockPosition var8 = var7.k();
++					var42.c(var8).ifPresent(var4 -> {
++						var42.a(this.a.c(), var9 -> var9.equals((Object) var8), var8, 1);
++						var1.getBehaviorController().setMemory(this.b,
++								GlobalPos.create((DimensionManager) var02.getWorldProvider().getDimensionManager(),
++										(BlockPosition) var8));
++						PacketDebug.c((WorldServer) var02, (BlockPosition) var8);
++					});
++				} else if (this.f < 5) {
++					this.e.long2LongEntrySet().removeIf(var0 -> var0.getLongValue() < this.d);
++				}
++			} catch (InterruptedException | ExecutionException e) {
++				e.printStackTrace();
++			}
++		});
++	}
++}
+\ No newline at end of file
+diff --git a/src/main/java/net/minecraft/server/BehavorMove.java b/src/main/java/net/minecraft/server/BehavorMove.java
+new file mode 100644
+index 000000000..2f425f37b
+--- /dev/null
++++ b/src/main/java/net/minecraft/server/BehavorMove.java
+@@ -0,0 +1,141 @@
++package net.minecraft.server;
++
++import com.google.common.collect.ImmutableMap;
++import java.util.Map;
++import java.util.Optional;
++import java.util.Random;
++import java.util.concurrent.ExecutionException;
++import java.util.concurrent.Future;
++
++import javax.annotation.Nullable;
++import net.minecraft.server.BaseBlockPosition;
++import net.minecraft.server.Behavior;
++import net.minecraft.server.BehaviorController;
++import net.minecraft.server.BehaviorPosition;
++import net.minecraft.server.BlockPosition;
++import net.minecraft.server.Entity;
++import net.minecraft.server.EntityCreature;
++import net.minecraft.server.EntityInsentient;
++import net.minecraft.server.EntityLiving;
++import net.minecraft.server.MemoryModuleType;
++import net.minecraft.server.MemoryStatus;
++import net.minecraft.server.MemoryTarget;
++import net.minecraft.server.NavigationAbstract;
++import net.minecraft.server.PathEntity;
++import net.minecraft.server.RandomPositionGenerator;
++import net.minecraft.server.Vec3D;
++import net.minecraft.server.WorldServer;
++
++public class BehavorMove extends Behavior<EntityInsentient> {
++	@Nullable
++	private PathEntity a;
++	@Nullable
++	private BlockPosition b;
++	private float c;
++	private int d;
++	
++    private static final java.util.concurrent.ExecutorService pathfindExecutor = java.util.concurrent.Executors.newFixedThreadPool(5, new com.google.common.util.concurrent.ThreadFactoryBuilder().setDaemon(true).setNameFormat("BehavorMoving Pathfinder - %d").build()); // YAPFA - Async pathfinder
++
++
++	public BehavorMove(int var0) {
++		super((Map) ImmutableMap.of((Object) MemoryModuleType.PATH, (Object) MemoryStatus.VALUE_ABSENT,
++				(Object) MemoryModuleType.WALK_TARGET, (Object) MemoryStatus.VALUE_PRESENT), var0);
++	}
++
++	protected boolean a(WorldServer var0, EntityInsentient var1) {
++		BehaviorController var2 = var1.getBehaviorController();
++		MemoryTarget var3 = (MemoryTarget) var2.getMemory(MemoryModuleType.WALK_TARGET).get();
++		pathfindExecutor.submit(() -> {
++			try {
++				if (!this.a(var1, var3) && this.a(var1, var3, var0.getTime())) {
++					this.b = var3.a().a();
++					return;
++				}
++				var2.removeMemory(MemoryModuleType.WALK_TARGET);
++			}catch(InterruptedException | ExecutionException e) {
++				e.printStackTrace();
++			}
++		});
++		return var3 != null;
++	}
++
++	protected boolean g(WorldServer var0, EntityInsentient var1, long var2) {
++		if (this.a == null || this.b == null) {
++			return false;
++		}
++		Optional var4 = var1.getBehaviorController().getMemory(MemoryModuleType.WALK_TARGET);
++		NavigationAbstract var5 = var1.getNavigation();
++		return !var5.m() && var4.isPresent() && !this.a(var1, (MemoryTarget) var4.get());
++	}
++
++	protected void f(WorldServer var0, EntityInsentient var1, long var2) {
++		var1.getNavigation().o();
++		var1.getBehaviorController().removeMemory(MemoryModuleType.WALK_TARGET);
++		var1.getBehaviorController().removeMemory(MemoryModuleType.PATH);
++		this.a = null;
++	}
++
++	protected void a(WorldServer var0, EntityInsentient var1, long var2) {
++		var1.getBehaviorController().setMemory(MemoryModuleType.PATH, this.a);
++		var1.getNavigation().a(this.a, (double) this.c);
++		this.d = var0.getRandom().nextInt(10);
++	}
++
++	protected void d(WorldServer var0, EntityInsentient var1, long var2) {
++		--this.d;
++		if (this.d > 0) {
++			return;
++		}
++		PathEntity var4 = var1.getNavigation().k();
++		BehaviorController var5 = var1.getBehaviorController();
++		if (this.a != var4) {
++			this.a = var4;
++			var5.setMemory(MemoryModuleType.PATH, (Object) var4);
++		}
++		if (var4 == null || this.b == null) {
++			return;
++		}
++		MemoryTarget var6 = (MemoryTarget) var5.getMemory(MemoryModuleType.WALK_TARGET).get();
++		pathfindExecutor.submit(() -> {
++			try {
++				if (var6.a().a().m((BaseBlockPosition) this.b) > 4.0 && this.a(var1, var6, var0.getTime())) {
++					this.b = var6.a().a();
++					this.a(var0, var1, var2);
++				}
++			}catch(InterruptedException | ExecutionException e) {
++				e.printStackTrace();
++			}
++		});
++	}
++
++	private Boolean a(EntityInsentient var0, MemoryTarget var1, long var2) throws InterruptedException, ExecutionException {
++		BlockPosition var4 = var1.a().a();
++		this.a = var0.getNavigation().aFuture(var4, 0).get();
++		this.c = var1.b();
++		if (!this.a(var0, var1)) {
++			boolean var6;
++			BehaviorController var5 = var0.getBehaviorController();
++			boolean bl = var6 = this.a != null && this.a.h();
++			if (var6) {
++				var5.setMemory(MemoryModuleType.CANT_REACH_WALK_TARGET_SINCE, Optional.empty());
++			} else if (!var5.hasMemory(MemoryModuleType.CANT_REACH_WALK_TARGET_SINCE)) {
++				var5.setMemory(MemoryModuleType.CANT_REACH_WALK_TARGET_SINCE, (Object) var2);
++			}
++			if (this.a != null) {
++				return true;
++			}
++			Vec3D var7 = RandomPositionGenerator.a((EntityCreature) ((EntityCreature) var0), (int) 10, (int) 7,
++					(Vec3D) new Vec3D((BaseBlockPosition) var4));
++			if (var7 != null) {
++				this.a = var0.getNavigation().aFuture(var7.x, var7.y, var7.z, 0).get();
++				return this.a != null;
++			}
++		}
++		return false;
++	}
++
++	private boolean a(EntityInsentient var0, MemoryTarget var1) {
++		return var1.a().a().n((BaseBlockPosition) new BlockPosition((Entity) var0)) <= var1.c();
++	}
++
++}
+\ No newline at end of file
+diff --git a/src/main/java/net/minecraft/server/EntityVillager.java b/src/main/java/net/minecraft/server/EntityVillager.java
+index 6e0020ae0..ca6dc7579 100644
+--- a/src/main/java/net/minecraft/server/EntityVillager.java
++++ b/src/main/java/net/minecraft/server/EntityVillager.java
+@@ -145,6 +145,7 @@ public class EntityVillager extends EntityVillagerAbstract implements Reputation
+     @Override
+     protected void mobTick() {
+         this.world.getMethodProfiler().enter("brain");
++        if(ticksLived%4 == 0)
+         this.getBehaviorController().a((WorldServer) this.world, this); // CraftBukkit - decompile error
+         this.world.getMethodProfiler().exit();
+         if (!this.et() && this.bB > 0) {
+diff --git a/src/main/java/net/minecraft/server/NavigationAbstract.java b/src/main/java/net/minecraft/server/NavigationAbstract.java
+index 196fdd43b..514dc8dc2 100644
+--- a/src/main/java/net/minecraft/server/NavigationAbstract.java
++++ b/src/main/java/net/minecraft/server/NavigationAbstract.java
+@@ -2,6 +2,10 @@ package net.minecraft.server;
+ 
+ import com.google.common.collect.ImmutableSet;
+ import java.util.Set;
++import java.util.concurrent.ExecutionException;
++import java.util.concurrent.Future;
++import java.util.concurrent.TimeUnit;
++import java.util.concurrent.TimeoutException;
+ import java.util.stream.Collectors;
+ import java.util.stream.Stream;
+ import javax.annotation.Nullable;
+@@ -30,7 +34,7 @@ public abstract class NavigationAbstract {
+     private float s;
+     private final Pathfinder t; public Pathfinder getPathfinder() { return this.t; } // Paper - OBFHELPER
+     private long lastPathfindAsync; // Akarin - Async pathfinder
+-    private static final java.util.concurrent.ExecutorService pathfindExecutor = java.util.concurrent.Executors.newSingleThreadExecutor(new com.google.common.util.concurrent.ThreadFactoryBuilder().setDaemon(true).setNameFormat("StarLink Pathfinder - %d").build()); // Akarin - Async pathfinder
++    private static final java.util.concurrent.ExecutorService pathfindExecutor = java.util.concurrent.Executors.newFixedThreadPool(10, new com.google.common.util.concurrent.ThreadFactoryBuilder().setDaemon(true).setNameFormat("StarLink Pathfinder - %d").build()); // Akarin - Async pathfinder
+      
+ 
+     public NavigationAbstract(EntityInsentient entityinsentient, World world) {
+@@ -118,33 +122,77 @@ public abstract class NavigationAbstract {
+     public final PathEntity calculateDestination(double d0, double d1, double d2) { return a(d0, d1, d2, 0); } public final PathEntity a(double d0, double d1, double d2, int i) { // Paper - OBFHELPER
+         return this.a(new BlockPosition(d0, d1, d2), i);
+     }
++    
++    public final Future<PathEntity> aFuture(double d0, double d1, double d2, int i) {
++        return this.aFuture(new BlockPosition(d0, d1, d2), i);
++    }
+ 
+     @Nullable
+     public PathEntity a(Stream<BlockPosition> stream, int i) {
+         return this.a((Set) stream.collect(Collectors.toSet()), 8, false, i);
+     }
++    
++    public Future<PathEntity> aFuture(Stream<BlockPosition> stream, int i) {
++        return this.aFuture((Set) stream.collect(Collectors.toSet()), 8, false, i);
++    }
+ 
+     @Nullable
+     public PathEntity a(BlockPosition blockposition, int i) {
+         // Paper start - add target parameter
+         return this.a(blockposition, null, i);
+     }
++    
++    public Future<PathEntity> aFuture(BlockPosition blockposition, int i) {
++        // Paper start - add target parameter
++        return this.aFuture(blockposition, null, i);
++    }
++    
+     @Nullable public PathEntity a(BlockPosition blockposition, Entity target, int i) {
+         return this.a(ImmutableSet.of(blockposition), target, 8, false, i);
+         // Paper end
+     }
++    
++    @Nullable public Future<PathEntity> aFuture(BlockPosition blockposition, Entity target, int i) {
++        return this.aFuture(ImmutableSet.of(blockposition), target, 8, false, i);
++        // Paper end
++    }
+ 
+     @Nullable
+     public final PathEntity calculateDestination(Entity entity) { return a(entity, 0); }  public PathEntity a(Entity entity, int i) {
+         return this.a(ImmutableSet.of(new BlockPosition(entity)), entity, 16, true, i); // Paper
+     }
++    
++    public Future<PathEntity> aFuture(Entity entity, int i) {
++        return this.aFuture(ImmutableSet.of(new BlockPosition(entity)), entity, 16, true, i);
++    }
+ 
+     @Nullable
+     // Paper start - Add target
+     protected PathEntity findPath(Set<BlockPosition> set, int i, boolean flag, int j) { return a(set, 1, flag, j); } protected PathEntity a(Set<BlockPosition> set, int i, boolean flag, int j) { // Akarin - OBFHELPER
+         return this.a(set, null, i, flag, j);
+     }
++    
++    protected Future<PathEntity> aFuture(Set<BlockPosition> set, int i, boolean flag, int j) {
++        return this.aFuture(set, null, i, flag, j);
++    }
++    
+     @Nullable protected PathEntity a(Set<BlockPosition> set, Entity target, int i, boolean flag, int j) {
++    	Future<PathEntity> future = aFuture(set, target, i, flag, j);
++    	try {
++			return future.get(10, TimeUnit.MILLISECONDS);
++		} catch (InterruptedException | ExecutionException e) {
++			e.printStackTrace();
++		} catch (TimeoutException e) {
++			System.out.println("Cancelt a pathfind because it took too long");
++			future.cancel(true);
++			return null;
++		}
++    	return null;
++    }
++    
++    protected Future<PathEntity> aFuture(Set<BlockPosition> s, Entity target, int i, boolean flag, int j) {
++    	return pathfindExecutor.submit(() -> {
++    	Set<BlockPosition> set = s;
+         // Paper end
+         if (set.isEmpty()) {
+             return null;
+@@ -158,7 +206,7 @@ public abstract class NavigationAbstract {
+             // Paper start - Pathfind event
+             boolean copiedSet = false;
+             for (BlockPosition possibleTarget : set) {
+-                if (!getEntity().getWorld().getWorldBorder().isInBounds(possibleTarget) || !new com.destroystokyo.paper.event.entity.EntityPathfindEvent(getEntity().getBukkitEntity(), // Paper - don't path out of world border
++                if (!getEntity().getWorld().getWorldBorder().isInBounds(possibleTarget) || false && !new com.destroystokyo.paper.event.entity.EntityPathfindEvent(getEntity().getBukkitEntity(), // Paper - don't path out of world border
+                     MCUtil.toLocation(getEntity().world, possibleTarget), target == null ? null : target.getBukkitEntity()).callEvent()) {
+                     if (!copiedSet) {
+                         copiedSet = true;
+@@ -187,6 +235,7 @@ public abstract class NavigationAbstract {
+ 
+             return pathentity;
+         }
++    	});
+     }
+     
+     // Akarin Start - Async pathfinder
+-- 
+2.25.1.windows.1
+

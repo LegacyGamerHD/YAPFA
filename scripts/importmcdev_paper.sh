@@ -95,6 +95,8 @@ done
 import PistonExtendsChecker
 import PathfinderTurtle
 import PathfinderWater
+#import BehaviorFindPosition # doesn't compile without fixes, copied into patch
+#import BehavorMove # doesn't compile without fixes, copied into patch
 # import TileEntityPiston # doesn't compile without fixes, copied into patch
 
 

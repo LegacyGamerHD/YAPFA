@@ -250,7 +250,7 @@ index 6e0020ae0..ca6dc7579 100644
      @Override
      protected void mobTick() {
          this.world.getMethodProfiler().enter("brain");
-+        if(ticksLived%4 == 0)
++        //if(ticksLived%4 == 0)
          this.getBehaviorController().a((WorldServer) this.world, this); // CraftBukkit - decompile error
          this.world.getMethodProfiler().exit();
          if (!this.et() && this.bB > 0) {

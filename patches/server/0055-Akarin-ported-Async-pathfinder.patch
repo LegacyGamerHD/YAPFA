@@ -1,4 +1,4 @@
-From a9c020c8ffd7897b36b3f1be81a2578d03ae0479 Mon Sep 17 00:00:00 2001
+From 752df9093f50ba0635c5f6dacd9c58bf155a4f6f Mon Sep 17 00:00:00 2001
 From: tr7zw <tr7zw@live.de>
 Date: Fri, 10 Apr 2020 01:40:28 +0200
 Subject: [PATCH] Akarin [ported] Async pathfinder
@@ -9,7 +9,9 @@ Subject: [PATCH] Akarin [ported] Async pathfinder
  .../minecraft/server/NavigationAbstract.java  | 148 +++++++++++++++++-
  .../java/net/minecraft/server/PathEntity.java |   2 +-
  .../java/net/minecraft/server/Pathfinder.java |  12 +-
- 5 files changed, 151 insertions(+), 15 deletions(-)
+ .../minecraft/server/PathfinderTurtle.java    |   2 +-
+ .../net/minecraft/server/PathfinderWater.java |   2 +-
+ 7 files changed, 153 insertions(+), 17 deletions(-)
 
 diff --git a/src/main/java/net/minecraft/server/EntityInsentient.java b/src/main/java/net/minecraft/server/EntityInsentient.java
 index 329f36859..241da82be 100644
@@ -325,6 +327,32 @@ index b0fa7dbf7..52bac6feb 100644
      private PathEntity a(PathPoint pathpoint, BlockPosition blockposition, boolean flag) {
          List<PathPoint> list = Lists.newArrayList();
          PathPoint pathpoint1 = pathpoint;
+diff --git a/src/main/java/net/minecraft/server/PathfinderTurtle.java b/src/main/java/net/minecraft/server/PathfinderTurtle.java
+index 59b1fe289..1790878ae 100644
+--- a/src/main/java/net/minecraft/server/PathfinderTurtle.java
++++ b/src/main/java/net/minecraft/server/PathfinderTurtle.java
+@@ -148,7 +148,7 @@ public class PathfinderTurtle extends PathfinderNormal {
+                 if (pathtype == PathType.OPEN) {
+                     AxisAlignedBB axisalignedbb = new AxisAlignedBB((double) i - d2 + 0.5D, (double) j + 0.001D, (double) k - d2 + 0.5D, (double) i + d2 + 0.5D, (double) ((float) j + this.b.getHeight()), (double) k + d2 + 0.5D);
+ 
+-                    if (!this.b.world.getCubes(this.b, axisalignedbb)) {
++                    if (!this.a.getCubes(this.b, axisalignedbb)) { // Akarin - use chunk cache
+                         return null;
+                     }
+ 
+diff --git a/src/main/java/net/minecraft/server/PathfinderWater.java b/src/main/java/net/minecraft/server/PathfinderWater.java
+index 075b63ef5..a3473ddcf 100644
+--- a/src/main/java/net/minecraft/server/PathfinderWater.java
++++ b/src/main/java/net/minecraft/server/PathfinderWater.java
+@@ -63,7 +63,7 @@ public class PathfinderWater extends PathfinderAbstract {
+     @Override
+     protected PathPoint a(int i, int j, int k) {
+         PathPoint pathpoint = null;
+-        PathType pathtype = this.a(this.b.world, i, j, k);
++        PathType pathtype = this.a(this.a, i, j, k); // Akarin - use chunk cache
+         float f = this.b.a(pathtype);
+ 
+         if (f >= 0.0F) {
 -- 
 2.25.1.windows.1
 

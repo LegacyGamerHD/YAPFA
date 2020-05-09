@@ -1,4 +1,4 @@
-# YAPFA
+# YAPFA test
 ## (Yet another ~~Paper~~ Tuinity fork attempt)
 [![Github-CI](https://github.com/tr7zw/YAPFA/workflows/CI/badge.svg)](https://github.com/tr7zw/YAPFA/actions?query=workflow%3ACI) [![CodeMC-CI](https://ci.codemc.io/job/Tr7zw/job/YAPFA/badge/icon?style=plastic)](https://ci.codemc.io/job/Tr7zw/job/YAPFA/)
 
